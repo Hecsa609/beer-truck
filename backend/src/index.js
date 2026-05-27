@@ -13,6 +13,7 @@ const helmet = require('helmet')
 const rateLimit = require('express-rate-limit')
 
 const authRoutes = require('./routes/auth')
+const productsRoutes = require('./routes/products')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -43,6 +44,7 @@ app.get('/health', (req, res) => {
 })
 
 app.use('/api/auth', authRoutes)
+app.use('/api/products', productsRoutes)
 
 app.listen(PORT, () => {
   console.log(`🍺 BEER TRUCK API corriendo en http://localhost:${PORT}`)
