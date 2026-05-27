@@ -14,6 +14,8 @@ const rateLimit = require('express-rate-limit')
 
 const authRoutes = require('./routes/auth')
 const productsRoutes = require('./routes/products')
+const customersRoutes = require('./routes/customers')
+const eventsRoutes = require('./routes/events')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -39,12 +41,15 @@ app.get('/health', (req, res) => {
     status: 'ok',
     proyecto: 'BEER TRUCK API',
     version: '1.0.0',
+    rutas: ['/api/auth', '/api/products', '/api/customers', '/api/events'],
     timestamp: new Date().toISOString()
   })
 })
 
 app.use('/api/auth', authRoutes)
 app.use('/api/products', productsRoutes)
+app.use('/api/customers', customersRoutes)
+app.use('/api/events', eventsRoutes)
 
 app.listen(PORT, () => {
   console.log(`🍺 BEER TRUCK API corriendo en http://localhost:${PORT}`)
