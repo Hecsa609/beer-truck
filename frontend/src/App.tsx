@@ -7,6 +7,7 @@ import LeadsView from './components/crm/LeadsView';
 import CampaignsView from './components/crm/CampaignsView';
 import LoyaltyView from './components/crm/LoyaltyView';
 import POSView from './components/sales/POSView';
+import SalesHistoryView from './components/sales/SalesHistoryView';
 import InventoryView from './components/inventory/InventoryView';
 import EventsView from './components/events/EventsView';
 import LogisticsView from './components/logistics/LogisticsView';
@@ -58,7 +59,7 @@ export default function App() {
       case 'sales/orders':
       case 'sales/quotes':
       case 'sales/history':
-        return <POSView />;
+        return <SalesHistoryView />;
       case 'inventory':
       case 'inventory/products':
       case 'inventory/kegs':
