@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { 
-  LayoutDashboard, Users, ShoppingCart, Package, Calendar, 
-  Truck, DollarSign, BarChart3, Settings, ChevronDown, 
+import {
+  LayoutDashboard, Users, ShoppingCart, Package, Calendar,
+  Truck, DollarSign, BarChart3, Settings, ChevronDown,
   ChevronRight, Beer, UserCircle, Headphones, Zap
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { canAccess } from '../../permissions';
 
 interface SidebarProps {
   activeModule: string;
   onNavigate: (module: string) => void;
   collapsed: boolean;
+  userRole?: string;
 }
 
 interface MenuItem {
@@ -17,13 +19,19 @@ interface MenuItem {
   label: string;
   icon: React.ReactNode;
   badge?: string | number;
+  permission?: string;
   children?: { id: string; label: string; badge?: string | number }[];
 }
 
-const menuItems: MenuItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-  { 
+const ALL_MENU_ITEMS: MenuItem[] = [
+  {
+    id: 'dashboard', label: 'Dashboard',
+    icon: <LayoutDashboard size={20} />,
+    permission: 'dashboard'
+  },
+  {
     id: 'crm', label: 'CRM', icon: <Users size={20} />,
+    permission: 'crm',
     children: [
       { id: 'crm/clients', label: 'Clientes' },
       { id: 'crm/leads', label: 'Leads', badge: '5' },
@@ -32,8 +40,9 @@ const menuItems: MenuItem[] = [
       { id: 'crm/loyalty', label: 'Fidelización' },
     ]
   },
-  { 
+  {
     id: 'sales', label: 'Ventas', icon: <ShoppingCart size={20} />,
+    permission: 'ventas',
     children: [
       { id: 'sales/pos', label: 'POS' },
       { id: 'sales/orders', label: 'Pedidos' },
@@ -41,8 +50,9 @@ const menuItems: MenuItem[] = [
       { id: 'sales/history', label: 'Historial' },
     ]
   },
-  { 
+  {
     id: 'inventory', label: 'Inventario', icon: <Package size={20} />, badge: '!',
+    permission: 'inventario',
     children: [
       { id: 'inventory/products', label: 'Productos' },
       { id: 'inventory/kegs', label: 'Barriles' },
@@ -51,16 +61,18 @@ const menuItems: MenuItem[] = [
       { id: 'inventory/transfers', label: 'Transferencias' },
     ]
   },
-  { 
+  {
     id: 'events', label: 'Eventos', icon: <Calendar size={20} />,
+    permission: 'eventos',
     children: [
       { id: 'events/calendar', label: 'Calendario' },
       { id: 'events/list', label: 'Lista de Eventos' },
       { id: 'events/bookings', label: 'Reservas', badge: '2' },
     ]
   },
-  { 
+  {
     id: 'logistics', label: 'Logística', icon: <Truck size={20} />,
+    permission: 'logistica',
     children: [
       { id: 'logistics/fleet', label: 'Flotilla' },
       { id: 'logistics/routes', label: 'Rutas' },
@@ -68,8 +80,9 @@ const menuItems: MenuItem[] = [
       { id: 'logistics/maintenance', label: 'Mantenimiento' },
     ]
   },
-  { 
+  {
     id: 'finance', label: 'Finanzas', icon: <DollarSign size={20} />,
+    permission: 'finanzas',
     children: [
       { id: 'finance/overview', label: 'Resumen' },
       { id: 'finance/invoices', label: 'Facturas' },
@@ -77,31 +90,49 @@ const menuItems: MenuItem[] = [
       { id: 'finance/receivable', label: 'Cuentas por Cobrar' },
     ]
   },
-  { id: 'reports', label: 'Reportes', icon: <BarChart3 size={20} /> },
-  { 
+  {
+    id: 'reports', label: 'Reportes',
+    icon: <BarChart3 size={20} />,
+    permission: 'reportes'
+  },
+  {
     id: 'users', label: 'Usuarios', icon: <UserCircle size={20} />,
+    permission: 'usuarios',
     children: [
       { id: 'users/list', label: 'Lista de Usuarios' },
       { id: 'users/roles', label: 'Roles y Permisos' },
       { id: 'users/schedule', label: 'Turnos' },
     ]
   },
-  { id: 'support', label: 'Soporte', icon: <Headphones size={20} />, badge: '2' },
-  { id: 'settings', label: 'Configuración', icon: <Settings size={20} /> },
-];
+  {
+    id: 'support', label: 'Soporte',
+    icon: <Headphones size={20} />, badge: '2'
+  },
+  {
+    id: 'settings', label: 'Configuración',
+    icon: <Settings size={20} />,
+    permission: 'configuracion'
+  },
+]
 
-export default function Sidebar({ activeModule, onNavigate, collapsed }: SidebarProps) {
-  const [expandedItems, setExpandedItems] = useState<string[]>(['crm', 'sales']);
+export default function Sidebar({ activeModule, onNavigate, collapsed, userRole = 'staff' }: SidebarProps) {
+  const [expandedItems, setExpandedItems] = useState<string[]>(['sales'])
 
   const toggleExpanded = (id: string) => {
-    setExpandedItems(prev => 
+    setExpandedItems(prev =>
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
+    )
+  }
 
-  const isActive = (id: string) => activeModule === id;
-  const isParentActive = (item: MenuItem) => 
-    item.children?.some(c => activeModule === c.id) || activeModule === item.id;
+  const isActive = (id: string) => activeModule === id
+  const isParentActive = (item: MenuItem) =>
+    item.children?.some(c => activeModule === c.id) || activeModule === item.id
+
+  // Filtrar solo los módulos que el rol puede ver
+  const visibleItems = ALL_MENU_ITEMS.filter(item => {
+    if (!item.permission) return true
+    return canAccess(userRole, item.permission as any)
+  })
 
   return (
     <aside className={cn(
@@ -126,20 +157,23 @@ export default function Sidebar({ activeModule, onNavigate, collapsed }: Sidebar
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-4 px-2">
         <div className="space-y-0.5">
-          {menuItems.map((item) => (
+          {visibleItems.map((item) => (
             <div key={item.id}>
               <button
                 onClick={() => {
                   if (item.children) {
-                    toggleExpanded(item.id);
+                    toggleExpanded(item.id)
+                    if (!expandedItems.includes(item.id)) {
+                      onNavigate(item.children[0].id)
+                    }
                   } else {
-                    onNavigate(item.id);
+                    onNavigate(item.id)
                   }
                 }}
                 className={cn(
-                  'sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
-                  isParentActive(item) 
-                    ? 'text-beer-400 bg-beer-500/10 active' 
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                  isParentActive(item)
+                    ? 'text-beer-400 bg-beer-500/10'
                     : 'text-dark-200 hover:text-white hover:bg-white/5',
                   collapsed && 'justify-center px-0'
                 )}
@@ -163,13 +197,15 @@ export default function Sidebar({ activeModule, onNavigate, collapsed }: Sidebar
                     )}
                     {item.children && (
                       <span className="text-dark-400">
-                        {expandedItems.includes(item.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        {expandedItems.includes(item.id)
+                          ? <ChevronDown size={14} />
+                          : <ChevronRight size={14} />}
                       </span>
                     )}
                   </>
                 )}
               </button>
-              
+
               {item.children && expandedItems.includes(item.id) && !collapsed && (
                 <div className="ml-6 mt-0.5 space-y-0.5 border-l border-white/5 pl-3">
                   {item.children.map((child) => (
@@ -198,7 +234,7 @@ export default function Sidebar({ activeModule, onNavigate, collapsed }: Sidebar
         </div>
       </nav>
 
-      {/* Bottom section */}
+      {/* Bottom */}
       {!collapsed && (
         <div className="p-4 border-t border-white/5">
           <div className="glass-card rounded-xl p-3">
@@ -215,5 +251,5 @@ export default function Sidebar({ activeModule, onNavigate, collapsed }: Sidebar
         </div>
       )}
     </aside>
-  );
+  )
 }
