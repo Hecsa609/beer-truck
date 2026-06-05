@@ -1,5 +1,65 @@
 const supabase = require('../config/supabase')
 
+// Función auxiliar: calcular saldo actual de una cuenta
+const getAccountBalance = async (account) => {
+  const { data, error } = await supabase
+    .from('bank_movements')
+    .select('movement_type, amount')
+    .eq('account', account)
+  if (error) return 0
+  return (data || []).reduce((saldo, m) => {
+    return m.movement_type === 'entrada' ? saldo + Number(m.amount) : saldo - Number(m.amount)
+  }, 0)
+}
+
+// Función auxiliar: registrar ingreso por evento completado
+const registrarIngresoEvento = async (event) => {
+  try {
+    if (!event.agreed_price || parseFloat(event.agreed_price) <= 0) return
+
+    const today = new Date().toISOString().slice(0, 10)
+    const monto = parseFloat(event.agreed_price)
+
+    // Verificar que no se haya registrado ya este evento
+    const { data: existing } = await supabase
+      .from('transactions')
+      .select('id')
+      .eq('description', `Cobro evento — ${event.name}`)
+      .limit(1)
+
+    if (existing && existing.length > 0) return // Ya fue registrado
+
+    // 1. Registrar en transactions
+    await supabase.from('transactions').insert([{
+      date: today,
+      type: 'ingreso',
+      category: 'Ventas evento',
+      description: `Cobro evento — ${event.name}`,
+      amount: monto,
+      payment_method: 'transferencia',
+      third_party: event.customers?.name || null,
+      status: 'completado',
+      notes: `Evento completado automáticamente. ID: ${event.id}`
+    }])
+
+    // 2. Registrar en banco — cobros de eventos van a Cuenta BBVA
+    const saldoActual = await getAccountBalance('Cuenta BBVA')
+    const nuevoSaldo = saldoActual + monto
+
+    await supabase.from('bank_movements').insert([{
+      date: today,
+      account: 'Cuenta BBVA',
+      movement_type: 'entrada',
+      description: `Cobro evento — ${event.name}`,
+      amount: monto,
+      balance: nuevoSaldo,
+      reference: event.id
+    }])
+  } catch (err) {
+    console.error('Error registrando ingreso de evento:', err.message)
+  }
+}
+
 const getAll = async (req, res) => {
   try {
     const { status, from, to } = req.query
@@ -119,14 +179,30 @@ const updateStatus = async (req, res) => {
       })
     }
 
+    // Obtener el evento actual con datos del cliente
+    const { data: eventoActual, error: fetchError } = await supabase
+      .from('events')
+      .select(`*, customers (id, name, phone, email)`)
+      .eq('id', id)
+      .single()
+
+    if (fetchError) throw fetchError
+
+    // Actualizar el estado
     const { data, error } = await supabase
       .from('events')
       .update({ status })
       .eq('id', id)
-      .select()
+      .select(`*, customers (id, name, phone, email)`)
       .single()
 
     if (error) throw error
+
+    // ✅ Si el evento se marca como completado, registrar ingreso automáticamente
+    if (status === 'completado' && eventoActual.status !== 'completado') {
+      await registrarIngresoEvento({ ...data, customers: eventoActual.customers })
+    }
+
     return res.json({ message: `Evento marcado como: ${status}`, event: data })
   } catch (error) {
     return res.status(500).json({ error: 'Error del servidor', message: error.message })

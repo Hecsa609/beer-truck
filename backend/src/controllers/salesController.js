@@ -9,6 +9,65 @@ const generateFolio = () => {
   return `BT-${year}${month}${day}-${random}`
 }
 
+const getAccountBalance = async (account) => {
+  const { data, error } = await supabase
+    .from('bank_movements')
+    .select('movement_type, amount')
+    .eq('account', account)
+  if (error) return 0
+  return (data || []).reduce((saldo, m) => {
+    return m.movement_type === 'entrada' ? saldo + Number(m.amount) : saldo - Number(m.amount)
+  }, 0)
+}
+
+const registrarTransaccionFinanciera = async (sale) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    console.log('💰 Registrando transacción financiera para venta:', sale.folio)
+
+    const { data: txData, error: txError } = await supabase.from('transactions').insert([{
+      date: today,
+      type: 'ingreso',
+      category: 'Ventas POS',
+      description: `Venta POS — Folio ${sale.folio}`,
+      amount: parseFloat(sale.total),
+      payment_method: sale.payment_method,
+      third_party: null,
+      status: 'completado',
+      notes: `Generado automáticamente desde POS`
+    }]).select()
+
+    if (txError) {
+      console.error('❌ Error insertando transaction:', JSON.stringify(txError))
+      return
+    }
+    console.log('✅ Transacción financiera registrada:', txData?.[0]?.id)
+
+    const cuentaDestino = sale.payment_method === 'efectivo' ? 'Caja chica' : 'Cuenta BBVA'
+    const saldoActual = await getAccountBalance(cuentaDestino)
+    const nuevoSaldo = saldoActual + parseFloat(sale.total)
+
+    const { error: bankError } = await supabase.from('bank_movements').insert([{
+      date: today,
+      account: cuentaDestino,
+      movement_type: 'entrada',
+      description: `Cobro venta POS — Folio ${sale.folio}`,
+      amount: parseFloat(sale.total),
+      balance: nuevoSaldo,
+      reference: sale.folio
+    }])
+
+    if (bankError) {
+      console.error('❌ Error insertando bank_movement:', JSON.stringify(bankError))
+      return
+    }
+    console.log('✅ Movimiento bancario registrado en:', cuentaDestino)
+
+  } catch (err) {
+    console.error('❌ Error general en registrarTransaccionFinanciera:', err.message)
+  }
+}
+
 const getAll = async (req, res) => {
   try {
     const { from, to, payment_method, payment_status } = req.query
@@ -75,10 +134,7 @@ const getById = async (req, res) => {
 
 const create = async (req, res) => {
   try {
-    const {
-      customer_id, event_id, items,
-      payment_method, discount, notes
-    } = req.body
+    const { customer_id, event_id, items, payment_method, discount, notes } = req.body
 
     if (!items || items.length === 0) {
       return res.status(400).json({
@@ -87,7 +143,6 @@ const create = async (req, res) => {
       })
     }
 
-    // Verificar stock de todos los productos
     for (const item of items) {
       const { data: inventory, error: invError } = await supabase
         .from('inventory')
@@ -111,7 +166,6 @@ const create = async (req, res) => {
       }
     }
 
-    // Calcular totales
     let subtotal = 0
     const saleItems = []
 
@@ -142,7 +196,6 @@ const create = async (req, res) => {
     const tax = (subtotal - sale_discount) * 0.16
     const total = subtotal - sale_discount + tax
 
-    // Crear la venta
     const { data: sale, error: saleError } = await supabase
       .from('sales')
       .insert([{
@@ -162,7 +215,6 @@ const create = async (req, res) => {
 
     if (saleError) throw saleError
 
-    // Insertar productos de la venta
     const itemsWithSaleId = saleItems.map(item => ({
       ...item,
       sale_id: sale.id
@@ -174,7 +226,6 @@ const create = async (req, res) => {
 
     if (itemsError) throw itemsError
 
-    // Bajar stock automáticamente
     for (const item of saleItems) {
       const { data: inventory } = await supabase
         .from('inventory')
@@ -203,12 +254,11 @@ const create = async (req, res) => {
         }])
     }
 
+    await registrarTransaccionFinanciera(sale)
+
     return res.status(201).json({
       message: 'Venta registrada correctamente',
-      sale: {
-        ...sale,
-        items: saleItems
-      }
+      sale: { ...sale, items: saleItems }
     })
   } catch (error) {
     return res.status(500).json({ error: 'Error del servidor', message: error.message })

@@ -103,17 +103,32 @@ const updateAccountPayable = async (req, res) => {
   }
 }
 
-// MOVIMIENTOS DE CAJA/BANCO
+// MOVIMIENTOS DE CAJA/BANCO — saldo automático por cuenta
 const getBankMovements = async (req, res) => {
   try {
     const { account, from, to } = req.query
-    let query = supabase.from('bank_movements').select('*').order('date', { ascending: false })
+    let query = supabase.from('bank_movements').select('*').order('date', { ascending: true }).order('created_at', { ascending: true })
     if (account) query = query.eq('account', account)
     if (from) query = query.gte('date', from)
     if (to) query = query.lte('date', to)
     const { data, error } = await query
     if (error) throw error
-    return res.json({ bank_movements: data })
+
+    // Calcular saldo acumulado por cuenta
+    const saldosPorCuenta = {}
+    const movimientosConSaldo = data.map(m => {
+      const cuenta = m.account
+      if (!saldosPorCuenta[cuenta]) saldosPorCuenta[cuenta] = 0
+      if (m.movement_type === 'entrada') {
+        saldosPorCuenta[cuenta] += Number(m.amount)
+      } else {
+        saldosPorCuenta[cuenta] -= Number(m.amount)
+      }
+      return { ...m, balance: saldosPorCuenta[cuenta] }
+    })
+
+    // Devolver en orden descendente para mostrar más reciente primero
+    return res.json({ bank_movements: movimientosConSaldo.reverse() })
   } catch (error) {
     return res.status(500).json({ error: error.message })
   }
@@ -121,18 +136,65 @@ const getBankMovements = async (req, res) => {
 
 const createBankMovement = async (req, res) => {
   try {
-    const { date, account, movement_type, description, amount, balance, reference } = req.body
+    const { date, account, movement_type, description, amount, reference } = req.body
     if (!date || !account || !movement_type || !description || !amount) {
       return res.status(400).json({ error: 'Faltan campos requeridos' })
     }
+
+    // Calcular saldo actual de la cuenta antes de insertar
+    const { data: prevMovements, error: prevError } = await supabase
+      .from('bank_movements')
+      .select('movement_type, amount')
+      .eq('account', account)
+    if (prevError) throw prevError
+
+    const saldoActual = (prevMovements || []).reduce((saldo, m) => {
+      return m.movement_type === 'entrada'
+        ? saldo + Number(m.amount)
+        : saldo - Number(m.amount)
+    }, 0)
+
+    const nuevoMonto = parseFloat(amount)
+    const nuevoSaldo = movement_type === 'entrada'
+      ? saldoActual + nuevoMonto
+      : saldoActual - nuevoMonto
+
     const { data, error } = await supabase.from('bank_movements').insert([{
       date, account, movement_type, description,
-      amount: parseFloat(amount),
-      balance: balance ? parseFloat(balance) : null,
-      reference
+      amount: nuevoMonto,
+      balance: nuevoSaldo,
+      reference: reference || null
     }]).select().single()
     if (error) throw error
-    return res.status(201).json({ bank_movement: data })
+
+    return res.status(201).json({ bank_movement: { ...data, balance: nuevoSaldo } })
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+}
+
+// Saldos actuales por cuenta
+const getAccountBalances = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('bank_movements')
+      .select('account, movement_type, amount')
+    if (error) throw error
+
+    const saldos = {}
+    ;(data || []).forEach(m => {
+      if (!saldos[m.account]) saldos[m.account] = 0
+      saldos[m.account] += m.movement_type === 'entrada'
+        ? Number(m.amount)
+        : -Number(m.amount)
+    })
+
+    const resultado = Object.entries(saldos).map(([cuenta, saldo]) => ({
+      account: cuenta,
+      balance: saldo
+    }))
+
+    return res.json({ balances: resultado })
   } catch (error) {
     return res.status(500).json({ error: error.message })
   }
@@ -144,7 +206,27 @@ const getFixedAssets = async (req, res) => {
     const { data, error } = await supabase.from('fixed_assets')
       .select('*').eq('active', true).order('purchase_date', { ascending: false })
     if (error) throw error
-    return res.json({ fixed_assets: data })
+
+    // Calcular depreciación acumulada y valor libro actual
+    const today = new Date()
+    const assetsWithCurrentValue = data.map(asset => {
+      const purchaseDate = new Date(asset.purchase_date)
+      const monthsElapsed = Math.floor(
+        (today.getFullYear() - purchaseDate.getFullYear()) * 12 +
+        (today.getMonth() - purchaseDate.getMonth())
+      )
+      const monthsDepreciated = Math.min(monthsElapsed, asset.useful_life_months)
+      const accumulated_depreciation = asset.monthly_depreciation * monthsDepreciated
+      const current_book_value = Math.max(0, asset.cost - accumulated_depreciation)
+      return {
+        ...asset,
+        months_elapsed: monthsDepreciated,
+        accumulated_depreciation,
+        book_value: current_book_value
+      }
+    })
+
+    return res.json({ fixed_assets: assetsWithCurrentValue })
   } catch (error) {
     return res.status(500).json({ error: error.message })
   }
@@ -159,13 +241,12 @@ const createFixedAsset = async (req, res) => {
     const costNum = parseFloat(cost)
     const lifeNum = parseInt(useful_life_months)
     const monthly_depreciation = costNum / lifeNum
-    const book_value = costNum
     const { data, error } = await supabase.from('fixed_assets').insert([{
       name, purchase_date,
       cost: costNum,
       useful_life_months: lifeNum,
       monthly_depreciation,
-      book_value
+      book_value: costNum
     }]).select().single()
     if (error) throw error
     return res.status(201).json({ fixed_asset: data })
@@ -185,7 +266,7 @@ const getFinancialSummary = async (req, res) => {
     const [transRes, payableRes, bankRes, salesRes] = await Promise.all([
       supabase.from('transactions').select('type, amount, category').gte('date', dateFrom).lte('date', dateTo),
       supabase.from('accounts_payable').select('amount, amount_paid, status'),
-      supabase.from('bank_movements').select('movement_type, amount').gte('date', dateFrom).lte('date', dateTo),
+      supabase.from('bank_movements').select('movement_type, amount, account'),
       supabase.from('sales').select('total').gte('sale_date', dateFrom).lte('sale_date', dateTo)
     ])
 
@@ -197,10 +278,19 @@ const getFinancialSummary = async (req, res) => {
     const totalIngresos = transactions.filter(t => t.type === 'ingreso').reduce((s, t) => s + Number(t.amount), 0)
     const totalEgresos = transactions.filter(t => t.type === 'egreso').reduce((s, t) => s + Number(t.amount), 0)
     const ventasPOS = sales.reduce((s, v) => s + Number(v.total), 0)
-    const cuentasPorPagar = payables.filter(p => ['pendiente', 'parcial', 'vencido'].includes(p.status))
+    const cuentasPorPagar = payables
+      .filter(p => ['pendiente', 'parcial', 'vencido'].includes(p.status))
       .reduce((s, p) => s + (Number(p.amount) - Number(p.amount_paid)), 0)
-    const entradasBanco = movements.filter(m => m.movement_type === 'entrada').reduce((s, m) => s + Number(m.amount), 0)
-    const salidasBanco = movements.filter(m => m.movement_type === 'salida').reduce((s, m) => s + Number(m.amount), 0)
+
+    // Saldo total en bancos y caja
+    const saldosBanco = {}
+    movements.forEach(m => {
+      if (!saldosBanco[m.account]) saldosBanco[m.account] = 0
+      saldosBanco[m.account] += m.movement_type === 'entrada'
+        ? Number(m.amount)
+        : -Number(m.amount)
+    })
+    const totalEfectivo = Object.values(saldosBanco).reduce((s, v) => s + v, 0)
 
     const categorias = {}
     transactions.filter(t => t.type === 'egreso').forEach(t => {
@@ -214,7 +304,8 @@ const getFinancialSummary = async (req, res) => {
       utilidad_neta: (totalIngresos + ventasPOS) - totalEgresos,
       ventas_pos: ventasPOS,
       cuentas_por_pagar: cuentasPorPagar,
-      flujo_banco: { entradas: entradasBanco, salidas: salidasBanco },
+      total_efectivo: totalEfectivo,
+      saldos_por_cuenta: saldosBanco,
       egresos_por_categoria: categorias
     })
   } catch (error) {
@@ -225,7 +316,7 @@ const getFinancialSummary = async (req, res) => {
 module.exports = {
   getTransactions, createTransaction, updateTransaction,
   getAccountsPayable, createAccountPayable, updateAccountPayable,
-  getBankMovements, createBankMovement,
+  getBankMovements, createBankMovement, getAccountBalances,
   getFixedAssets, createFixedAsset,
   getFinancialSummary
 }

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
-  DollarSign, TrendingUp, TrendingDown, Receipt,
-  ArrowUpRight, ArrowDownRight, Plus, RefreshCw,
-  AlertTriangle, Clock, CheckCircle2, Building2, Package
+  DollarSign, ArrowUpRight, ArrowDownRight, Plus, RefreshCw,
+  Clock, CheckCircle2, Building2, Package
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { cn } from '../../utils/cn';
@@ -21,7 +20,6 @@ export default function FinanceView() {
   const [bankMovements, setBankMovements] = useState<any[]>([])
   const [fixedAssets, setFixedAssets] = useState<any[]>([])
 
-  // Forms
   const [showTxForm, setShowTxForm] = useState(false)
   const [showPayableForm, setShowPayableForm] = useState(false)
   const [showBankForm, setShowBankForm] = useState(false)
@@ -40,7 +38,7 @@ export default function FinanceView() {
   const [bankForm, setBankForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     account: 'Caja chica', movement_type: 'entrada',
-    description: '', amount: '', balance: '', reference: ''
+    description: '', amount: '', reference: ''
   })
   const [assetForm, setAssetForm] = useState({
     name: '', purchase_date: new Date().toISOString().slice(0, 10),
@@ -100,7 +98,7 @@ export default function FinanceView() {
       await financeAPI.createBankMovement(bankForm)
       await loadAll()
       setShowBankForm(false)
-      setBankForm({ date: new Date().toISOString().slice(0, 10), account: 'Caja chica', movement_type: 'entrada', description: '', amount: '', balance: '', reference: '' })
+      setBankForm({ date: new Date().toISOString().slice(0, 10), account: 'Caja chica', movement_type: 'entrada', description: '', amount: '', reference: '' })
     } catch (err) { console.error(err) } finally { setSaving(false) }
   }
 
@@ -142,8 +140,14 @@ export default function FinanceView() {
     { id: 'assets', label: 'Activos Fijos' },
   ]
 
-  // Chart data from bank movements
-  const chartData = bankMovements.slice(0, 10).reverse().map(m => ({
+  // Calcular saldos por cuenta desde los movimientos
+  const saldosPorCuenta: Record<string, number> = {}
+  ;[...bankMovements].reverse().forEach(m => {
+    if (!saldosPorCuenta[m.account]) saldosPorCuenta[m.account] = 0
+    saldosPorCuenta[m.account] += m.movement_type === 'entrada' ? Number(m.amount) : -Number(m.amount)
+  })
+
+  const chartData = [...bankMovements].reverse().slice(-10).map(m => ({
     date: new Date(m.date + 'T12:00:00').toLocaleDateString('es-MX', { day: 'numeric', month: 'short' }),
     entrada: m.movement_type === 'entrada' ? Number(m.amount) : 0,
     salida: m.movement_type === 'salida' ? Number(m.amount) : 0,
@@ -225,6 +229,29 @@ export default function FinanceView() {
               <p className="text-2xl font-bold text-white">{formatCurrency(summary?.cuentas_por_pagar || 0)}</p>
             </div>
           </div>
+
+          {/* Saldos por cuenta */}
+          {Object.keys(summary?.saldos_por_cuenta || {}).length > 0 && (
+            <div className="glass-card rounded-2xl p-6">
+              <h3 className="text-base font-semibold text-white mb-4">Saldos por Cuenta</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {Object.entries(summary.saldos_por_cuenta).map(([cuenta, saldo]: any) => (
+                  <div key={cuenta} className="p-3 rounded-xl bg-white/3 text-center">
+                    <p className="text-xs text-dark-400 mb-1 truncate">{cuenta}</p>
+                    <p className={cn('text-sm font-bold', saldo >= 0 ? 'text-green-400' : 'text-red-400')}>
+                      {formatCurrency(saldo)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 pt-3 border-t border-white/5 flex justify-between items-center">
+                <span className="text-sm text-dark-400">Total en caja y bancos</span>
+                <span className="text-base font-bold text-white">
+                  {formatCurrency(Object.values(summary.saldos_por_cuenta).reduce((s: any, v: any) => s + v, 0))}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Chart */}
           <div className="glass-card rounded-2xl p-6">
@@ -344,9 +371,9 @@ export default function FinanceView() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-dark-400 mb-1">Tercero (proveedor / cliente)</label>
+                  <label className="block text-xs text-dark-400 mb-1">Tercero</label>
                   <input type="text" value={txForm.third_party} onChange={e => setTxForm({ ...txForm, third_party: e.target.value })}
-                    placeholder="Nombre del tercero"
+                    placeholder="Proveedor o cliente"
                     className="w-full px-4 py-2.5 bg-dark-800 border border-white/5 rounded-xl text-sm text-white placeholder-dark-500 focus:outline-none" />
                 </div>
                 <div>
@@ -358,9 +385,7 @@ export default function FinanceView() {
               </div>
               <div className="flex gap-3 mt-4">
                 <button onClick={() => setShowTxForm(false)}
-                  className="px-4 py-2 bg-dark-700 rounded-xl text-sm text-dark-300 hover:text-white transition-colors">
-                  Cancelar
-                </button>
+                  className="px-4 py-2 bg-dark-700 rounded-xl text-sm text-dark-300 hover:text-white transition-colors">Cancelar</button>
                 <button onClick={handleSaveTx} disabled={saving || !txForm.category || !txForm.description || !txForm.amount}
                   className="px-4 py-2 gradient-beer rounded-xl text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 transition-all">
                   {saving ? 'Guardando...' : 'Guardar'}
@@ -530,6 +555,21 @@ export default function FinanceView() {
       {/* CAJA / BANCO */}
       {activeTab === 'bank' && (
         <div className="space-y-4">
+
+          {/* Saldos actuales por cuenta */}
+          {Object.keys(saldosPorCuenta).length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {Object.entries(saldosPorCuenta).map(([cuenta, saldo]) => (
+                <div key={cuenta} className="glass-card rounded-xl p-4 text-center">
+                  <p className="text-xs text-dark-400 mb-1 truncate">{cuenta}</p>
+                  <p className={cn('text-lg font-bold', saldo >= 0 ? 'text-green-400' : 'text-red-400')}>
+                    {formatCurrency(saldo)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex justify-end">
             <button onClick={() => setShowBankForm(!showBankForm)}
               className="px-4 py-2 gradient-beer rounded-xl text-sm font-medium text-white hover:opacity-90 transition-all flex items-center gap-2">
@@ -574,15 +614,9 @@ export default function FinanceView() {
                     className="w-full px-4 py-2.5 bg-dark-800 border border-white/5 rounded-xl text-sm text-white placeholder-dark-500 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs text-dark-400 mb-1">Saldo después del movimiento</label>
-                  <input type="number" value={bankForm.balance} onChange={e => setBankForm({ ...bankForm, balance: e.target.value })}
-                    placeholder="0.00"
-                    className="w-full px-4 py-2.5 bg-dark-800 border border-white/5 rounded-xl text-sm text-white placeholder-dark-500 focus:outline-none" />
-                </div>
-                <div className="md:col-span-2">
                   <label className="block text-xs text-dark-400 mb-1">Referencia</label>
                   <input type="text" value={bankForm.reference} onChange={e => setBankForm({ ...bankForm, reference: e.target.value })}
-                    placeholder="No. de referencia o folio"
+                    placeholder="No. de transferencia, folio..."
                     className="w-full px-4 py-2.5 bg-dark-800 border border-white/5 rounded-xl text-sm text-white placeholder-dark-500 focus:outline-none" />
                 </div>
               </div>
@@ -631,7 +665,9 @@ export default function FinanceView() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <span className="text-sm font-bold text-white">{m.balance ? formatCurrency(m.balance) : '—'}</span>
+                        <span className={cn('text-sm font-bold', Number(m.balance) >= 0 ? 'text-white' : 'text-red-400')}>
+                          {formatCurrency(m.balance)}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -691,6 +727,30 @@ export default function FinanceView() {
             </div>
           )}
 
+          {/* Resumen depreciación */}
+          {fixedAssets.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="glass-card rounded-xl p-4">
+                <p className="text-xs text-dark-400 mb-1">Valor Original Total</p>
+                <p className="text-xl font-bold text-white">
+                  {formatCurrency(fixedAssets.reduce((s, a) => s + Number(a.cost), 0))}
+                </p>
+              </div>
+              <div className="glass-card rounded-xl p-4">
+                <p className="text-xs text-dark-400 mb-1">Depreciación Acumulada</p>
+                <p className="text-xl font-bold text-red-400">
+                  {formatCurrency(fixedAssets.reduce((s, a) => s + Number(a.accumulated_depreciation || 0), 0))}
+                </p>
+              </div>
+              <div className="glass-card rounded-xl p-4">
+                <p className="text-xs text-dark-400 mb-1">Valor Libro Actual</p>
+                <p className="text-xl font-bold text-beer-400">
+                  {formatCurrency(fixedAssets.reduce((s, a) => s + Number(a.book_value), 0))}
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="glass-card rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -698,15 +758,16 @@ export default function FinanceView() {
                   <tr className="border-b border-white/5">
                     <th className="text-left px-6 py-4 text-xs font-medium text-dark-400 uppercase">Activo</th>
                     <th className="text-left px-6 py-4 text-xs font-medium text-dark-400 uppercase">Fecha compra</th>
-                    <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Costo</th>
-                    <th className="text-center px-6 py-4 text-xs font-medium text-dark-400 uppercase">Vida útil</th>
+                    <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Costo original</th>
+                    <th className="text-center px-6 py-4 text-xs font-medium text-dark-400 uppercase">Meses transcurridos</th>
                     <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Dep. mensual</th>
-                    <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Valor libro</th>
+                    <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Dep. acumulada</th>
+                    <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Valor libro actual</th>
                   </tr>
                 </thead>
                 <tbody>
                   {fixedAssets.length === 0 ? (
-                    <tr><td colSpan={6} className="px-6 py-12 text-center text-dark-400">No hay activos fijos registrados</td></tr>
+                    <tr><td colSpan={7} className="px-6 py-12 text-center text-dark-400">No hay activos fijos registrados</td></tr>
                   ) : fixedAssets.map(a => (
                     <tr key={a.id} className="table-row border-b border-white/3">
                       <td className="px-6 py-4">
@@ -719,8 +780,11 @@ export default function FinanceView() {
                       </td>
                       <td className="px-6 py-4"><span className="text-sm text-dark-300">{formatDate(a.purchase_date)}</span></td>
                       <td className="px-6 py-4 text-right"><span className="text-sm font-semibold text-white">{formatCurrency(a.cost)}</span></td>
-                      <td className="px-6 py-4 text-center"><span className="text-sm text-dark-300">{a.useful_life_months} meses</span></td>
-                      <td className="px-6 py-4 text-right"><span className="text-sm text-red-400">{formatCurrency(a.monthly_depreciation)}</span></td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="text-sm text-dark-300">{a.months_elapsed} / {a.useful_life_months}</span>
+                      </td>
+                      <td className="px-6 py-4 text-right"><span className="text-sm text-dark-300">{formatCurrency(a.monthly_depreciation)}</span></td>
+                      <td className="px-6 py-4 text-right"><span className="text-sm text-red-400">{formatCurrency(a.accumulated_depreciation || 0)}</span></td>
                       <td className="px-6 py-4 text-right"><span className="text-sm font-bold text-beer-400">{formatCurrency(a.book_value)}</span></td>
                     </tr>
                   ))}
