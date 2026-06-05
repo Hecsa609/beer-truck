@@ -1,9 +1,7 @@
-export type UserRole = 
-  | 'owner' 
-  | 'admin' 
-  | 'comercial' 
-  | 'administrativo' 
-  | 'operador' 
+export type UserRole =
+  | 'owner'
+  | 'admin'
+  | 'gerente'
   | 'staff'
   | 'bartender'
   | 'chofer'
@@ -43,6 +41,7 @@ const createEdit: ModulePermission = {
 }
 
 export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
+  // Propietario — acceso completo
   owner: {
     dashboard: fullAccess,
     crm: fullAccess,
@@ -55,23 +54,25 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
     usuarios: fullAccess,
     configuracion: fullAccess,
   },
+  // Administrador — todo excepto config financiera
   admin: {
-    dashboard: fullAccess,
+    dashboard: noAccess,
     crm: fullAccess,
     ventas: fullAccess,
     inventario: fullAccess,
     eventos: fullAccess,
-    logistica: fullAccess,
-    finanzas: readOnly,
-    reportes: fullAccess,
+    logistica: noAccess,
+    finanzas: noAccess,
+    reportes: noAccess,
     usuarios: createEdit,
-    configuracion: readOnly,
+    configuracion: noAccess,
   },
-  comercial: {
-    dashboard: readOnly,
-    crm: fullAccess,
-    ventas: createEdit,
-    inventario: readOnly,
+  // Gerente — Inventario, Eventos, Reportes
+  gerente: {
+    dashboard: noAccess,
+    crm: noAccess,
+    ventas: noAccess,
+    inventario: fullAccess,
     eventos: fullAccess,
     logistica: noAccess,
     finanzas: noAccess,
@@ -79,30 +80,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
     usuarios: noAccess,
     configuracion: noAccess,
   },
-  administrativo: {
-    dashboard: readOnly,
-    crm: readOnly,
-    ventas: readOnly,
-    inventario: readOnly,
-    eventos: readOnly,
-    logistica: noAccess,
-    finanzas: fullAccess,
-    reportes: fullAccess,
-    usuarios: noAccess,
-    configuracion: noAccess,
-  },
-  operador: {
-    dashboard: readOnly,
-    crm: noAccess,
-    ventas: fullAccess,
-    inventario: createEdit,
-    eventos: readOnly,
-    logistica: readOnly,
-    finanzas: noAccess,
-    reportes: noAccess,
-    usuarios: noAccess,
-    configuracion: noAccess,
-  },
+  // Staff — POS + Inventario lectura
   staff: {
     dashboard: noAccess,
     crm: noAccess,
@@ -115,6 +93,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
     usuarios: noAccess,
     configuracion: noAccess,
   },
+  // Bartender — POS + Inventario lectura
   bartender: {
     dashboard: noAccess,
     crm: noAccess,
@@ -127,27 +106,29 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
     usuarios: noAccess,
     configuracion: noAccess,
   },
+  // Chofer — Logística (rutas, GPS)
   chofer: {
-    dashboard: readOnly,
+    dashboard: noAccess,
     crm: noAccess,
-    ventas: readOnly,
-    inventario: readOnly,
-    eventos: readOnly,
+    ventas: noAccess,
+    inventario: noAccess,
+    eventos: noAccess,
     logistica: readOnly,
     finanzas: noAccess,
     reportes: noAccess,
     usuarios: noAccess,
     configuracion: noAccess,
   },
+  // Vendedor — POS, Clientes, Cotizaciones
   vendedor: {
-    dashboard: readOnly,
+    dashboard: noAccess,
     crm: createEdit,
     ventas: fullAccess,
-    inventario: readOnly,
-    eventos: readOnly,
+    inventario: noAccess,
+    eventos: noAccess,
     logistica: noAccess,
     finanzas: noAccess,
-    reportes: readOnly,
+    reportes: noAccess,
     usuarios: noAccess,
     configuracion: noAccess,
   },

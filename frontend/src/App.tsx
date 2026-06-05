@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import Dashboard from './components/dashboard/Dashboard';
@@ -20,6 +20,43 @@ import LoginView from './components/LoginView';
 import { authAPI } from './api';
 import { canAccess } from './permissions';
 import { cn } from './utils/cn';
+import InvoicesView from './components/finance/InvoicesView';
+
+const getDefaultModuleForRole = (role: string) => {
+  if (canAccess(role, 'dashboard')) return 'dashboard'
+  if (canAccess(role, 'ventas')) return 'sales/pos'
+  if (canAccess(role, 'inventario')) return 'inventory/products'
+  if (canAccess(role, 'crm')) return 'crm/clients'
+  if (canAccess(role, 'eventos')) return 'events/calendar'
+  if (canAccess(role, 'logistica')) return 'logistics/routes'
+  if (canAccess(role, 'finanzas')) return 'finance/overview'
+  if (canAccess(role, 'reportes')) return 'reports'
+  if (canAccess(role, 'usuarios')) return 'users/list'
+  return 'support'
+}
+
+const getPermissionForModule = (module: string) => {
+  if (module.startsWith('crm')) return 'crm'
+  if (module.startsWith('sales')) return 'ventas'
+  if (module.startsWith('inventory')) return 'inventario'
+  if (module.startsWith('events')) return 'eventos'
+  if (module.startsWith('logistics')) return 'logistica'
+  if (module.startsWith('finance')) return 'finanzas'
+  if (module.startsWith('reports')) return 'reportes'
+  if (module.startsWith('users')) return 'usuarios'
+  if (module.startsWith('settings')) return 'configuracion'
+  if (module === 'dashboard') return 'dashboard'
+  return null
+}
+
+const getAllowedActiveModule = (activeModule: string, role: string) => {
+  if (activeModule === 'support' && role !== 'owner' && role !== 'admin') {
+    return getDefaultModuleForRole(role)
+  }
+  const permission = getPermissionForModule(activeModule)
+  if (!permission || canAccess(role, permission as any)) return activeModule
+  return getDefaultModuleForRole(role)
+}
 
 const AccessDenied = ({ module }: { module: string }) => (
   <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
@@ -35,22 +72,45 @@ const AccessDenied = ({ module }: { module: string }) => (
 )
 
 export default function App() {
-  const [activeModule, setActiveModule] = useState('dashboard');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(authAPI.isAuthenticated());
+  const [activeModule, setActiveModule] = useState(() => {
+    const user = authAPI.getUser()
+    return getDefaultModuleForRole(user?.role || 'staff')
+  })
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(authAPI.isAuthenticated())
 
-  const handleLogin = () => setIsAuthenticated(true)
-  const handleLogout = () => { authAPI.logout(); setIsAuthenticated(false) }
+  // Escucha cuando cualquier llamada a la API detecta sesión expirada
+  useEffect(() => {
+    const handleExpired = () => {
+      setIsAuthenticated(false)
+      setActiveModule(getDefaultModuleForRole('staff'))
+    }
+    window.addEventListener('beer_truck_session_expired', handleExpired)
+    return () => window.removeEventListener('beer_truck_session_expired', handleExpired)
+  }, [])
+
+  const handleLogin = () => {
+    const user = authAPI.getUser()
+    setActiveModule(getDefaultModuleForRole(user?.role || 'staff'))
+    setIsAuthenticated(true)
+  }
+
+  const handleLogout = () => {
+    authAPI.logout()
+    setActiveModule(getDefaultModuleForRole('staff'))
+    setIsAuthenticated(false)
+  }
+
+  const user = authAPI.getUser()
+  const role = user?.role || 'staff'
+  const allowedActiveModule = getAllowedActiveModule(activeModule, role)
 
   if (!isAuthenticated) {
     return <LoginView onLogin={handleLogin} />
   }
 
-  const user = authAPI.getUser()
-  const role = user?.role || 'staff'
-
   const renderContent = () => {
-    switch (activeModule) {
+    switch (allowedActiveModule) {
       case 'dashboard':
         return canAccess(role, 'dashboard') ? <Dashboard /> : <AccessDenied module="Dashboard" />
 
@@ -95,11 +155,14 @@ export default function App() {
       case 'logistics/maintenance':
         return canAccess(role, 'logistica') ? <LogisticsView /> : <AccessDenied module="Logística" />
 
+      case 'finance/invoices':
+        return canAccess(role, 'finanzas') ? <InvoicesView /> : <AccessDenied module="Facturas" />
       case 'finance':
       case 'finance/overview':
-      case 'finance/invoices':
       case 'finance/transactions':
-      case 'finance/receivable':
+      case 'finance/payable':
+      case 'finance/bank':
+      case 'finance/assets':
         return canAccess(role, 'finanzas') ? <FinanceView /> : <AccessDenied module="Finanzas" />
 
       case 'reports':
@@ -115,6 +178,12 @@ export default function App() {
         return <SupportView />
 
       case 'settings':
+      case 'settings/general':
+      case 'settings/company':
+      case 'settings/notifications':
+      case 'settings/security':
+      case 'settings/billing':
+      case 'settings/integrations':
         return canAccess(role, 'configuracion') ? <SettingsView /> : <AccessDenied module="Configuración" />
 
       default:
@@ -125,7 +194,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-dark-900 text-white">
       <Sidebar
-        activeModule={activeModule}
+        activeModule={allowedActiveModule}
         onNavigate={setActiveModule}
         collapsed={sidebarCollapsed}
         userRole={role}

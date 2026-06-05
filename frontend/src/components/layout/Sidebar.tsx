@@ -87,7 +87,9 @@ const ALL_MENU_ITEMS: MenuItem[] = [
       { id: 'finance/overview', label: 'Resumen' },
       { id: 'finance/invoices', label: 'Facturas' },
       { id: 'finance/transactions', label: 'Transacciones' },
-      { id: 'finance/receivable', label: 'Cuentas por Cobrar' },
+      { id: 'finance/payable', label: 'Cuentas por Pagar' },
+      { id: 'finance/bank', label: 'Caja / Banco' },
+      { id: 'finance/assets', label: 'Activos Fijos' },
     ]
   },
   {
@@ -115,6 +117,37 @@ const ALL_MENU_ITEMS: MenuItem[] = [
   },
 ]
 
+const getVisibleChildren = (item: MenuItem, userRole: string) => {
+  if (!item.children) return undefined
+  if (userRole === 'owner' || userRole === 'admin') return item.children
+  if (item.id === 'sales') {
+    return item.children.filter(child => {
+      if (child.id === 'sales/pos') return true
+      if (child.id === 'sales/quotes') return userRole === 'vendedor'
+      return false
+    })
+  }
+  if (item.id === 'crm') {
+    return item.children.filter(child => child.id === 'crm/clients')
+  }
+  if (item.id === 'inventory') {
+    return item.children.filter(child =>
+      ['inventory/products', 'inventory/stock', 'inventory/alerts'].includes(child.id)
+    )
+  }
+  if (item.id === 'logistics') {
+    return item.children.filter(child =>
+      ['logistics/routes', 'logistics/map'].includes(child.id)
+    )
+  }
+  if (item.id === 'finance') {
+    return item.children.filter(child =>
+      ['finance/overview', 'finance/transactions'].includes(child.id)
+    )
+  }
+  return item.children
+}
+
 export default function Sidebar({ activeModule, onNavigate, collapsed, userRole = 'staff' }: SidebarProps) {
   const [expandedItems, setExpandedItems] = useState<string[]>(['sales'])
 
@@ -128,11 +161,16 @@ export default function Sidebar({ activeModule, onNavigate, collapsed, userRole 
   const isParentActive = (item: MenuItem) =>
     item.children?.some(c => activeModule === c.id) || activeModule === item.id
 
-  // Filtrar solo los módulos que el rol puede ver
-  const visibleItems = ALL_MENU_ITEMS.filter(item => {
-    if (!item.permission) return true
-    return canAccess(userRole, item.permission as any)
-  })
+  const visibleItems = ALL_MENU_ITEMS
+    .filter(item => {
+      if (item.id === 'support') return userRole === 'owner' || userRole === 'admin'
+      if (!item.permission) return true
+      return canAccess(userRole, item.permission as any)
+    })
+    .map(item => ({
+      ...item,
+      children: getVisibleChildren(item, userRole)
+    }))
 
   return (
     <aside className={cn(
@@ -163,7 +201,7 @@ export default function Sidebar({ activeModule, onNavigate, collapsed, userRole 
                 onClick={() => {
                   if (item.children) {
                     toggleExpanded(item.id)
-                    if (!expandedItems.includes(item.id)) {
+                    if (!expandedItems.includes(item.id) && item.children.length > 0) {
                       onNavigate(item.children[0].id)
                     }
                   } else {

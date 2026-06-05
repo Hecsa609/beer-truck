@@ -7,11 +7,15 @@ const authHeaders = () => ({
   'Authorization': `Bearer ${getToken()}`
 })
 
+const notifySessionExpired = () => {
+  window.dispatchEvent(new CustomEvent('beer_truck_session_expired'))
+}
+
 const handleResponse = async (res: Response) => {
   if (res.status === 401) {
     localStorage.removeItem('beer_truck_token')
     localStorage.removeItem('beer_truck_user')
-    window.location.reload()
+    notifySessionExpired()
     throw new Error('Sesión expirada')
   }
   const data = await res.json()
@@ -32,17 +36,21 @@ export const authAPI = {
     localStorage.setItem('beer_truck_user', JSON.stringify(data.user))
     return data
   },
-
   logout: () => {
     localStorage.removeItem('beer_truck_token')
     localStorage.removeItem('beer_truck_user')
   },
-
   getUser: () => {
     const user = localStorage.getItem('beer_truck_user')
-    return user ? JSON.parse(user) : null
+    if (!user) return null
+    try {
+      return JSON.parse(user)
+    } catch {
+      localStorage.removeItem('beer_truck_token')
+      localStorage.removeItem('beer_truck_user')
+      return null
+    }
   },
-
   isAuthenticated: () => !!getToken()
 }
 
@@ -97,4 +105,62 @@ export const salesAPI = {
     method: 'POST', headers: authHeaders(), body: JSON.stringify(sale)
   })),
   getDailySummary: async () => handleResponse(await fetch(`${API_URL}/sales/summary/today`, { headers: authHeaders() }))
+}
+
+export const financeAPI = {
+  getSummary: async (from?: string, to?: string) => {
+    const params = new URLSearchParams()
+    if (from) params.append('from', from)
+    if (to) params.append('to', to)
+    const q = params.toString()
+    return handleResponse(await fetch(`${API_URL}/finance/summary${q ? '?' + q : ''}`, { headers: authHeaders() }))
+  },
+  getTransactions: async (filters?: any) => {
+    const params = filters ? new URLSearchParams(filters).toString() : ''
+    return handleResponse(await fetch(`${API_URL}/finance/transactions${params ? '?' + params : ''}`, { headers: authHeaders() }))
+  },
+  createTransaction: async (data: any) => handleResponse(await fetch(`${API_URL}/finance/transactions`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data)
+  })),
+  updateTransaction: async (id: string, data: any) => handleResponse(await fetch(`${API_URL}/finance/transactions/${id}`, {
+    method: 'PUT', headers: authHeaders(), body: JSON.stringify(data)
+  })),
+  getAccountsPayable: async (filters?: any) => {
+    const params = filters ? new URLSearchParams(filters).toString() : ''
+    return handleResponse(await fetch(`${API_URL}/finance/accounts-payable${params ? '?' + params : ''}`, { headers: authHeaders() }))
+  },
+  createAccountPayable: async (data: any) => handleResponse(await fetch(`${API_URL}/finance/accounts-payable`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data)
+  })),
+  updateAccountPayable: async (id: string, data: any) => handleResponse(await fetch(`${API_URL}/finance/accounts-payable/${id}`, {
+    method: 'PUT', headers: authHeaders(), body: JSON.stringify(data)
+  })),
+  getBankMovements: async (filters?: any) => {
+    const params = filters ? new URLSearchParams(filters).toString() : ''
+    return handleResponse(await fetch(`${API_URL}/finance/bank-movements${params ? '?' + params : ''}`, { headers: authHeaders() }))
+  },
+  createBankMovement: async (data: any) => handleResponse(await fetch(`${API_URL}/finance/bank-movements`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data)
+  })),
+  getFixedAssets: async () => handleResponse(await fetch(`${API_URL}/finance/fixed-assets`, { headers: authHeaders() })),
+  createFixedAsset: async (data: any) => handleResponse(await fetch(`${API_URL}/finance/fixed-assets`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data)
+  }))
+}
+export const invoicesAPI = {
+  getAll: async (filters?: any) => {
+    const params = filters ? new URLSearchParams(filters).toString() : ''
+    return handleResponse(await fetch(`${API_URL}/invoices${params ? '?' + params : ''}`, { headers: authHeaders() }))
+  },
+  getById: async (id: string) => handleResponse(await fetch(`${API_URL}/invoices/${id}`, { headers: authHeaders() })),
+  getStats: async () => handleResponse(await fetch(`${API_URL}/invoices/stats`, { headers: authHeaders() })),
+  create: async (data: any) => handleResponse(await fetch(`${API_URL}/invoices`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data)
+  })),
+  updateStatus: async (id: string, status: string) => handleResponse(await fetch(`${API_URL}/invoices/${id}/status`, {
+    method: 'PATCH', headers: authHeaders(), body: JSON.stringify({ status })
+  })),
+  registerPayment: async (id: string, data: any) => handleResponse(await fetch(`${API_URL}/invoices/${id}/payments`, {
+    method: 'POST', headers: authHeaders(), body: JSON.stringify(data)
+  }))
 }
