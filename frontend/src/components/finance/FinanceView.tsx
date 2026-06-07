@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   DollarSign, ArrowUpRight, ArrowDownRight, Plus, RefreshCw,
-  Clock, CheckCircle2, Building2, Package
+  Clock, CheckCircle2, Building2, Package, Calendar
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { cn } from '../../utils/cn';
@@ -11,6 +11,54 @@ const CATEGORIAS_INGRESO = ['Ventas evento', 'Ventas POS', 'Anticipo cliente', '
 const CATEGORIAS_EGRESO = ['Nómina', 'Inventario', 'Mantenimiento', 'Combustible', 'Renta', 'Servicios', 'Impuestos', 'Publicidad', 'Otro egreso']
 const CUENTAS_BANCO = ['Caja chica', 'Cuenta BBVA', 'Cuenta Banamex', 'Cuenta HSBC', 'PayPal', 'Mercado Pago']
 
+const PERIODOS = [
+  { id: 'mes_actual', label: 'Este mes' },
+  { id: 'mes_anterior', label: 'Mes anterior' },
+  { id: 'trimestre', label: 'Este trimestre' },
+  { id: 'anio', label: 'Este año' },
+  { id: 'personalizado', label: 'Personalizado' },
+]
+
+const getPeriodDates = (periodoId: string) => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = now.getMonth()
+
+  switch (periodoId) {
+    case 'mes_actual':
+      return {
+        from: `${year}-${String(month + 1).padStart(2, '0')}-01`,
+        to: now.toISOString().slice(0, 10)
+      }
+    case 'mes_anterior': {
+      const prevMonth = month === 0 ? 12 : month
+      const prevYear = month === 0 ? year - 1 : year
+      const lastDay = new Date(prevYear, prevMonth, 0).getDate()
+      return {
+        from: `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`,
+        to: `${prevYear}-${String(prevMonth).padStart(2, '0')}-${lastDay}`
+      }
+    }
+    case 'trimestre': {
+      const quarterStart = Math.floor(month / 3) * 3
+      return {
+        from: `${year}-${String(quarterStart + 1).padStart(2, '0')}-01`,
+        to: now.toISOString().slice(0, 10)
+      }
+    }
+    case 'anio':
+      return {
+        from: `${year}-01-01`,
+        to: now.toISOString().slice(0, 10)
+      }
+    default:
+      return {
+        from: `${year}-${String(month + 1).padStart(2, '0')}-01`,
+        to: now.toISOString().slice(0, 10)
+      }
+  }
+}
+
 export default function FinanceView() {
   const [activeTab, setActiveTab] = useState<'overview' | 'transactions' | 'payable' | 'bank' | 'assets'>('overview')
   const [loading, setLoading] = useState(true)
@@ -19,6 +67,11 @@ export default function FinanceView() {
   const [accountsPayable, setAccountsPayable] = useState<any[]>([])
   const [bankMovements, setBankMovements] = useState<any[]>([])
   const [fixedAssets, setFixedAssets] = useState<any[]>([])
+
+  // Selector de período
+  const [periodo, setPeriodo] = useState('mes_actual')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
 
   const [showTxForm, setShowTxForm] = useState(false)
   const [showPayableForm, setShowPayableForm] = useState(false)
@@ -45,11 +98,25 @@ export default function FinanceView() {
     cost: '', useful_life_months: ''
   })
 
+  const getActiveDates = () => {
+    if (periodo === 'personalizado' && customFrom && customTo) {
+      return { from: customFrom, to: customTo }
+    }
+    return getPeriodDates(periodo)
+  }
+
+  const loadSummary = async () => {
+    const { from, to } = getActiveDates()
+    const s = await financeAPI.getSummary(from, to)
+    setSummary(s)
+  }
+
   const loadAll = async () => {
     setLoading(true)
     try {
+      const { from, to } = getActiveDates()
       const [s, t, p, b, a] = await Promise.all([
-        financeAPI.getSummary(),
+        financeAPI.getSummary(from, to),
         financeAPI.getTransactions(),
         financeAPI.getAccountsPayable(),
         financeAPI.getBankMovements(),
@@ -68,6 +135,17 @@ export default function FinanceView() {
   }
 
   useEffect(() => { loadAll() }, [])
+
+  // Recargar resumen cuando cambia el período
+  useEffect(() => {
+    if (periodo !== 'personalizado') {
+      loadSummary()
+    }
+  }, [periodo])
+
+  const handleCustomPeriod = () => {
+    if (customFrom && customTo) loadSummary()
+  }
 
   const handleSaveTx = async () => {
     if (!txForm.category || !txForm.description || !txForm.amount) return
@@ -140,7 +218,6 @@ export default function FinanceView() {
     { id: 'assets', label: 'Activos Fijos' },
   ]
 
-  // Calcular saldos por cuenta desde los movimientos
   const saldosPorCuenta: Record<string, number> = {}
   ;[...bankMovements].reverse().forEach(m => {
     if (!saldosPorCuenta[m.account]) saldosPorCuenta[m.account] = 0
@@ -188,13 +265,56 @@ export default function FinanceView() {
       {/* OVERVIEW */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
+
+          {/* Selector de período */}
+          <div className="glass-card rounded-xl p-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2 text-dark-400">
+                <Calendar size={16} />
+                <span className="text-xs font-medium uppercase">Período</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {PERIODOS.map(p => (
+                  <button key={p.id} onClick={() => setPeriodo(p.id)}
+                    className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                      periodo === p.id
+                        ? 'bg-beer-500/20 text-beer-400 border border-beer-500/30'
+                        : 'bg-dark-800 text-dark-300 border border-white/5 hover:text-white'
+                    )}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {periodo === 'personalizado' && (
+                <div className="flex items-center gap-2 ml-2">
+                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                    className="px-3 py-1.5 bg-dark-800 border border-white/5 rounded-lg text-xs text-white focus:outline-none" />
+                  <span className="text-dark-400 text-xs">—</span>
+                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+                    className="px-3 py-1.5 bg-dark-800 border border-white/5 rounded-lg text-xs text-white focus:outline-none" />
+                  <button onClick={handleCustomPeriod}
+                    disabled={!customFrom || !customTo}
+                    className="px-3 py-1.5 gradient-beer rounded-lg text-xs font-medium text-white hover:opacity-90 disabled:opacity-50 transition-all">
+                    Aplicar
+                  </button>
+                </div>
+              )}
+              {summary?.periodo && (
+                <span className="text-xs text-dark-500 ml-auto">
+                  {formatDate(summary.periodo.desde)} — {formatDate(summary.periodo.hasta)}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="glass-card rounded-xl p-5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-xl bg-green-500/20 flex items-center justify-center text-green-400">
                   <ArrowUpRight size={20} />
                 </div>
-                <span className="text-xs text-dark-400">Ingresos del mes</span>
+                <span className="text-xs text-dark-400">Ingresos del período</span>
               </div>
               <p className="text-2xl font-bold text-white">{formatCurrency(summary?.ingresos || 0)}</p>
               <p className="text-xs text-dark-500 mt-1">Incl. ventas POS: {formatCurrency(summary?.ventas_pos || 0)}</p>
@@ -204,7 +324,7 @@ export default function FinanceView() {
                 <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center text-red-400">
                   <ArrowDownRight size={20} />
                 </div>
-                <span className="text-xs text-dark-400">Egresos del mes</span>
+                <span className="text-xs text-dark-400">Egresos del período</span>
               </div>
               <p className="text-2xl font-bold text-white">{formatCurrency(summary?.egresos || 0)}</p>
             </div>
@@ -218,6 +338,11 @@ export default function FinanceView() {
               <p className={cn('text-2xl font-bold', (summary?.utilidad_neta || 0) >= 0 ? 'text-green-400' : 'text-red-400')}>
                 {formatCurrency(summary?.utilidad_neta || 0)}
               </p>
+              {(summary?.ingresos || 0) > 0 && (
+                <p className="text-xs text-dark-500 mt-1">
+                  Margen: {(((summary?.utilidad_neta || 0) / (summary?.ingresos || 1)) * 100).toFixed(1)}%
+                </p>
+              )}
             </div>
             <div className="glass-card rounded-xl p-5">
               <div className="flex items-center gap-3 mb-3">
@@ -410,7 +535,7 @@ export default function FinanceView() {
                 </thead>
                 <tbody>
                   {transactions.length === 0 ? (
-                    <tr><td colSpan={7} className="px-6 py-12 text-center text-dark-400">No hay transacciones. ¡Registra la primera!</td></tr>
+                    <tr><td colSpan={7} className="px-6 py-12 text-center text-dark-400">No hay transacciones registradas</td></tr>
                   ) : transactions.map(t => (
                     <tr key={t.id} className="table-row border-b border-white/3">
                       <td className="px-6 py-4"><span className="text-sm text-dark-300">{formatDate(t.date)}</span></td>
@@ -555,8 +680,6 @@ export default function FinanceView() {
       {/* CAJA / BANCO */}
       {activeTab === 'bank' && (
         <div className="space-y-4">
-
-          {/* Saldos actuales por cuenta */}
           {Object.keys(saldosPorCuenta).length > 0 && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {Object.entries(saldosPorCuenta).map(([cuenta, saldo]) => (
@@ -727,7 +850,6 @@ export default function FinanceView() {
             </div>
           )}
 
-          {/* Resumen depreciación */}
           {fixedAssets.length > 0 && (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="glass-card rounded-xl p-4">
@@ -759,7 +881,7 @@ export default function FinanceView() {
                     <th className="text-left px-6 py-4 text-xs font-medium text-dark-400 uppercase">Activo</th>
                     <th className="text-left px-6 py-4 text-xs font-medium text-dark-400 uppercase">Fecha compra</th>
                     <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Costo original</th>
-                    <th className="text-center px-6 py-4 text-xs font-medium text-dark-400 uppercase">Meses transcurridos</th>
+                    <th className="text-center px-6 py-4 text-xs font-medium text-dark-400 uppercase">Meses</th>
                     <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Dep. mensual</th>
                     <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Dep. acumulada</th>
                     <th className="text-right px-6 py-4 text-xs font-medium text-dark-400 uppercase">Valor libro actual</th>
