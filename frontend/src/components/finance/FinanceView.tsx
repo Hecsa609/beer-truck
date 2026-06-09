@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   DollarSign, ArrowUpRight, ArrowDownRight, Plus, RefreshCw,
-  Clock, CheckCircle2, Building2, Package, Calendar
+  Clock, CheckCircle2, Building2, Package, Calendar, Download
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { cn } from '../../utils/cn';
-import { financeAPI } from '../../api';
+import { financeAPI, reportsAPI } from '../../api';
 
 const CATEGORIAS_INGRESO = ['Ventas evento', 'Ventas POS', 'Anticipo cliente', 'Otro ingreso']
 const CATEGORIAS_EGRESO = ['Nómina', 'Inventario', 'Mantenimiento', 'Combustible', 'Renta', 'Servicios', 'Impuestos', 'Publicidad', 'Otro egreso']
@@ -23,39 +23,23 @@ const getPeriodDates = (periodoId: string) => {
   const now = new Date()
   const year = now.getFullYear()
   const month = now.getMonth()
-
   switch (periodoId) {
     case 'mes_actual':
-      return {
-        from: `${year}-${String(month + 1).padStart(2, '0')}-01`,
-        to: now.toISOString().slice(0, 10)
-      }
+      return { from: `${year}-${String(month + 1).padStart(2, '0')}-01`, to: now.toISOString().slice(0, 10) }
     case 'mes_anterior': {
       const prevMonth = month === 0 ? 12 : month
       const prevYear = month === 0 ? year - 1 : year
       const lastDay = new Date(prevYear, prevMonth, 0).getDate()
-      return {
-        from: `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`,
-        to: `${prevYear}-${String(prevMonth).padStart(2, '0')}-${lastDay}`
-      }
+      return { from: `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`, to: `${prevYear}-${String(prevMonth).padStart(2, '0')}-${lastDay}` }
     }
     case 'trimestre': {
       const quarterStart = Math.floor(month / 3) * 3
-      return {
-        from: `${year}-${String(quarterStart + 1).padStart(2, '0')}-01`,
-        to: now.toISOString().slice(0, 10)
-      }
+      return { from: `${year}-${String(quarterStart + 1).padStart(2, '0')}-01`, to: now.toISOString().slice(0, 10) }
     }
     case 'anio':
-      return {
-        from: `${year}-01-01`,
-        to: now.toISOString().slice(0, 10)
-      }
+      return { from: `${year}-01-01`, to: now.toISOString().slice(0, 10) }
     default:
-      return {
-        from: `${year}-${String(month + 1).padStart(2, '0')}-01`,
-        to: now.toISOString().slice(0, 10)
-      }
+      return { from: `${year}-${String(month + 1).padStart(2, '0')}-01`, to: now.toISOString().slice(0, 10) }
   }
 }
 
@@ -67,17 +51,15 @@ export default function FinanceView() {
   const [accountsPayable, setAccountsPayable] = useState<any[]>([])
   const [bankMovements, setBankMovements] = useState<any[]>([])
   const [fixedAssets, setFixedAssets] = useState<any[]>([])
-
-  // Selector de período
   const [periodo, setPeriodo] = useState('mes_actual')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-
   const [showTxForm, setShowTxForm] = useState(false)
   const [showPayableForm, setShowPayableForm] = useState(false)
   const [showBankForm, setShowBankForm] = useState(false)
   const [showAssetForm, setShowAssetForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const [txForm, setTxForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -99,9 +81,7 @@ export default function FinanceView() {
   })
 
   const getActiveDates = () => {
-    if (periodo === 'personalizado' && customFrom && customTo) {
-      return { from: customFrom, to: customTo }
-    }
+    if (periodo === 'personalizado' && customFrom && customTo) return { from: customFrom, to: customTo }
     return getPeriodDates(periodo)
   }
 
@@ -135,17 +115,9 @@ export default function FinanceView() {
   }
 
   useEffect(() => { loadAll() }, [])
+  useEffect(() => { if (periodo !== 'personalizado') loadSummary() }, [periodo])
 
-  // Recargar resumen cuando cambia el período
-  useEffect(() => {
-    if (periodo !== 'personalizado') {
-      loadSummary()
-    }
-  }, [periodo])
-
-  const handleCustomPeriod = () => {
-    if (customFrom && customTo) loadSummary()
-  }
+  const handleCustomPeriod = () => { if (customFrom && customTo) loadSummary() }
 
   const handleSaveTx = async () => {
     if (!txForm.category || !txForm.description || !txForm.amount) return
@@ -199,6 +171,18 @@ export default function FinanceView() {
     } catch (err) { console.error(err) }
   }
 
+  const handleDownloadExcel = async () => {
+    try {
+      setDownloading(true)
+      const { from, to } = getActiveDates()
+      await reportsAPI.downloadEstadosFinancieros(from, to)
+    } catch (err) {
+      console.error('Error descargando Excel:', err)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(value || 0)
 
@@ -245,9 +229,16 @@ export default function FinanceView() {
           <h1 className="text-2xl font-bold text-white">Finanzas</h1>
           <p className="text-sm text-dark-300 mt-1">Control financiero real — transacciones, pagos y activos</p>
         </div>
-        <button onClick={loadAll} className="p-2 rounded-xl bg-dark-700 text-dark-400 hover:text-white transition-colors">
-          <RefreshCw size={16} />
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={handleDownloadExcel} disabled={downloading}
+            className="px-4 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl text-sm font-medium hover:bg-green-500/30 transition-all flex items-center gap-2 disabled:opacity-50">
+            <Download size={16} />
+            {downloading ? 'Generando...' : 'Exportar Excel'}
+          </button>
+          <button onClick={loadAll} className="p-2 rounded-xl bg-dark-700 text-dark-400 hover:text-white transition-colors">
+            <RefreshCw size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -265,8 +256,6 @@ export default function FinanceView() {
       {/* OVERVIEW */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-
-          {/* Selector de período */}
           <div className="glass-card rounded-xl p-4">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-2 text-dark-400">
@@ -292,8 +281,7 @@ export default function FinanceView() {
                   <span className="text-dark-400 text-xs">—</span>
                   <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
                     className="px-3 py-1.5 bg-dark-800 border border-white/5 rounded-lg text-xs text-white focus:outline-none" />
-                  <button onClick={handleCustomPeriod}
-                    disabled={!customFrom || !customTo}
+                  <button onClick={handleCustomPeriod} disabled={!customFrom || !customTo}
                     className="px-3 py-1.5 gradient-beer rounded-lg text-xs font-medium text-white hover:opacity-90 disabled:opacity-50 transition-all">
                     Aplicar
                   </button>
@@ -307,7 +295,6 @@ export default function FinanceView() {
             </div>
           </div>
 
-          {/* KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="glass-card rounded-xl p-5">
               <div className="flex items-center gap-3 mb-3">
@@ -355,7 +342,6 @@ export default function FinanceView() {
             </div>
           </div>
 
-          {/* Saldos por cuenta */}
           {Object.keys(summary?.saldos_por_cuenta || {}).length > 0 && (
             <div className="glass-card rounded-2xl p-6">
               <h3 className="text-base font-semibold text-white mb-4">Saldos por Cuenta</h3>
@@ -378,7 +364,6 @@ export default function FinanceView() {
             </div>
           )}
 
-          {/* Chart */}
           <div className="glass-card rounded-2xl p-6">
             <h3 className="text-base font-semibold text-white mb-1">Movimientos de Caja / Banco</h3>
             <p className="text-xs text-dark-400 mb-4">Últimos movimientos registrados</p>
@@ -411,7 +396,6 @@ export default function FinanceView() {
             )}
           </div>
 
-          {/* Egresos por categoría */}
           {summary?.egresos_por_categoria && Object.keys(summary.egresos_por_categoria).length > 0 && (
             <div className="glass-card rounded-2xl p-6">
               <h3 className="text-base font-semibold text-white mb-4">Egresos por Categoría</h3>
@@ -445,7 +429,6 @@ export default function FinanceView() {
               <Plus size={16} /> Nueva Transacción
             </button>
           </div>
-
           {showTxForm && (
             <div className="glass-card rounded-2xl p-6 border border-beer-500/20">
               <h3 className="text-base font-semibold text-white mb-4">Nueva Transacción</h3>
@@ -518,7 +501,6 @@ export default function FinanceView() {
               </div>
             </div>
           )}
-
           <div className="glass-card rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -575,7 +557,6 @@ export default function FinanceView() {
               <Plus size={16} /> Nueva Cuenta por Pagar
             </button>
           </div>
-
           {showPayableForm && (
             <div className="glass-card rounded-2xl p-6 border border-beer-500/20">
               <h3 className="text-base font-semibold text-white mb-4">Nueva Cuenta por Pagar</h3>
@@ -625,7 +606,6 @@ export default function FinanceView() {
               </div>
             </div>
           )}
-
           <div className="space-y-3">
             {accountsPayable.length === 0 ? (
               <div className="glass-card rounded-2xl p-12 text-center">
@@ -645,23 +625,18 @@ export default function FinanceView() {
                     <div>
                       <h4 className="text-sm font-semibold text-white">{p.supplier}</h4>
                       <p className="text-xs text-dark-400 mt-0.5">
-                        {p.invoice_id ? `Factura: ${p.invoice_id} · ` : ''}
-                        Vence: {formatDate(p.due_date)}
+                        {p.invoice_id ? `Factura: ${p.invoice_id} · ` : ''}Vence: {formatDate(p.due_date)}
                       </p>
                       <div className="flex items-center gap-3 mt-1">
                         <span className={cn('badge text-[10px]', statusPayableColors[p.status] || 'badge-neutral')}>{p.status}</span>
-                        {p.status === 'parcial' && (
-                          <span className="text-xs text-dark-400">Pagado: {formatCurrency(p.amount_paid)}</span>
-                        )}
+                        {p.status === 'parcial' && <span className="text-xs text-dark-400">Pagado: {formatCurrency(p.amount_paid)}</span>}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
                       <p className="text-lg font-bold text-white">{formatCurrency(p.amount)}</p>
-                      {p.status !== 'pagado' && (
-                        <p className="text-xs text-red-400">Pendiente: {formatCurrency(Number(p.amount) - Number(p.amount_paid))}</p>
-                      )}
+                      {p.status !== 'pagado' && <p className="text-xs text-red-400">Pendiente: {formatCurrency(Number(p.amount) - Number(p.amount_paid))}</p>}
                     </div>
                     {p.status !== 'pagado' && p.status !== 'cancelado' && (
                       <button onClick={() => handlePayPayable(p.id, Number(p.amount_paid), Number(p.amount))}
@@ -692,14 +667,12 @@ export default function FinanceView() {
               ))}
             </div>
           )}
-
           <div className="flex justify-end">
             <button onClick={() => setShowBankForm(!showBankForm)}
               className="px-4 py-2 gradient-beer rounded-xl text-sm font-medium text-white hover:opacity-90 transition-all flex items-center gap-2">
               <Plus size={16} /> Nuevo Movimiento
             </button>
           </div>
-
           {showBankForm && (
             <div className="glass-card rounded-2xl p-6 border border-beer-500/20">
               <h3 className="text-base font-semibold text-white mb-4">Nuevo Movimiento de Caja / Banco</h3>
@@ -753,7 +726,6 @@ export default function FinanceView() {
               </div>
             </div>
           )}
-
           <div className="glass-card rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -810,7 +782,6 @@ export default function FinanceView() {
               <Plus size={16} /> Nuevo Activo
             </button>
           </div>
-
           {showAssetForm && (
             <div className="glass-card rounded-2xl p-6 border border-beer-500/20">
               <h3 className="text-base font-semibold text-white mb-4">Nuevo Activo Fijo</h3>
@@ -849,7 +820,6 @@ export default function FinanceView() {
               </div>
             </div>
           )}
-
           {fixedAssets.length > 0 && (
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="glass-card rounded-xl p-4">
@@ -872,7 +842,6 @@ export default function FinanceView() {
               </div>
             </div>
           )}
-
           <div className="glass-card rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">

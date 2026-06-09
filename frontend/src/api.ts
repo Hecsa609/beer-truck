@@ -164,3 +164,24 @@ export const invoicesAPI = {
     method: 'POST', headers: authHeaders(), body: JSON.stringify(data)
   }))
 }
+export const reportsAPI = {
+  downloadEstadosFinancieros: async (from?: string, to?: string) => {
+    const params = new URLSearchParams()
+    if (from) params.append('from', from)
+    if (to) params.append('to', to)
+    const q = params.toString()
+    const res = await fetch(`${API_URL}/reports/estados-financieros${q ? '?' + q : ''}`, {
+      headers: authHeaders()
+    })
+    if (!res.ok) throw new Error('Error generando reporte')
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `BEERTRUCK_Estados_Financieros_${new Date().toISOString().slice(0, 10)}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  }
+}

@@ -20,6 +20,7 @@ const salesRoutes = require('./routes/sales')
 const usersRoutes = require('./routes/users')
 const financeRoutes = require('./routes/finance')
 const invoicesRoutes = require('./routes/invoices')
+const reportsRoutes = require('./routes/reports')
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -45,7 +46,7 @@ app.get('/health', (req, res) => {
     status: 'ok',
     proyecto: 'BEER TRUCK API',
     version: '1.0.0',
-    rutas: ['/api/auth', '/api/products', '/api/customers', '/api/events', '/api/sales', '/api/users', '/api/finance', '/api/invoices'],
+    rutas: ['/api/auth', '/api/products', '/api/customers', '/api/events', '/api/sales', '/api/users', '/api/finance', '/api/invoices', '/api/reports'],
     timestamp: new Date().toISOString()
   })
 })
@@ -58,6 +59,7 @@ app.use('/api/sales', salesRoutes)
 app.use('/api/users', usersRoutes)
 app.use('/api/finance', financeRoutes)
 app.use('/api/invoices', invoicesRoutes)
+app.use('/api/reports', reportsRoutes)
 
 app.listen(PORT, () => {
   console.log(`🍺 BEER TRUCK API corriendo en http://localhost:${PORT}`)
